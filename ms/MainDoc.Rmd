@@ -1,0 +1,39 @@
+---
+title: "Using occupancy models to improve inferences for conservation easements"
+author: "Matt Williamson"
+date: "5/22/2019"
+output: 
+  word_document:
+    reference_docx: docx_template.docx
+bibliography: refs.bib
+csl: methods-in-ecology-and-evolution.csl
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+```
+
+## Introduction
+
+Conservation easements, land-use agreements in which a landowner agrees to limit land use in exchange for direct payments or reduced tax burdens, are an increasingly important component of private land conservation [@rissman2017]. It is estimated that there are currently roughly 16 million ha, an area roughly equivalent to that approximately half of that managed by the United States National Park Service, under conservation easement in the United States. Unlike the National Park System, however, the bulk of these easements have been undertaken within the last 30 years making conservation easements a key element of contemporary efforts to augment the existing protected areas network in the United States [@cheever2014].
+
+The explosive growth in easement adoption coupled with substantial amounts of public investment in obtaining easements have drive an increasing amount of interest in understanding the drivers of easement adoption and the ecological outcomes delivered by easements. Efforts to address the former have largely relied on interviews and surveys (CITES) whereas efforts to address the latter have focused on the spatial overlap of easements with a variety of ecological values (CITES). The spatial distribution of easements, however, is likely the result of a complex interaction of social, institutional, and environmental factors [@williamson2018]. The increasing availability of high resolution, spatially explicit information on the demographic, economic, institutional, and ecological context of easements creates an opportunity to identify key correlates of easement adoption at broad spatial scales; yet efforts to identify the geographic correlates of conservation easements remain relatively rare [but see @baldwin2015].
+
+Initiated in 2009, the National Conservation Easement Database (NCED) is a national database of easement boundaries, conservation purposes, and easement holders based on voluntarily reported information from a variety of individuals and organizations (CITE WEBPAGE). As the largest publicly-accessible, spatially explicit repository of easement information, the NCED provides valuable information for understanding effective environmental governance, improving spatial conservation planning, and tracking public investments (Rissman et al. 2017). Currently, the NCED is estimated to be 60% complete at the national level and considerably more or less so at the state level (e.g., easement data for VA is over 96% complete  while in CO it is less than 25% complete). Non-reporting creates a challenge for researchers wherein the absence of an easement within the NCED may indicate that it is absent from the geography of interest or that it is present, but not reported. In such cases, efforts to estimate the probability of easement occurrence will be biased and attempts to determine the relationship between predictors and easement occurrence (i.e., through regression analysis) may be confounded particularly if the predictor influences both occurrence and detection [@gu2004].
+   
+Issues of non-detection (or non-reporting) are pervasive in wildlife ecology. Cryptic species, variability in activity levels, and differing levels of observer skill all create situations where a species may go unobserved at a location despite being present. This can result in biased estimates of species occurrence and lead to spurious inferences with respect to the relationship between predictors and occurrence probability [@gu2004]. Occupancy models, a suite of flexible models that use repeated surveys to estimate the probability that a site is truly occupied by a species while accounting for imperfect detection [@mackenzie2002; @mackenzie2017], are increasingly applied across a wide range of ecological problems to reduce bias induced by imperfect or heterogenous detection [reporting; @bailey2014]. We describe efforts to relate spatial predictors to easement occurrence as a situation analogous to efforts to model the occupancy probability of a species as a function of predictors describing potential elements of that species habitat. We use a series of simulation experiments to evaluate the performance of different model structures under conditions that are germane to modelling easement occurrence. Finally, we use a case study of conservation easements in Montana and Idaho to illustrate differences in inference that arise from different modelling choices.
+
+### Single-season Occupancy models
+Typical occupancy studies are based on a design wherein a number of survey units are visited by trained observers multiple times during the course of a study period and the presence or absence of the target species is recorded. Observed absences may be the result of the species being truly absent from the location or the species being present, but not detected [@mackenzie2002]. As such, data from occupancy surveys arise from the interaction of the ecological process that determines where a species occurs and an observation process that determines whether the observer records the species when it is present. Multiple visits to a site help distinguish between the two [@johnson2013spatial]. For many large-scale monitoring programs, repeated visits to a single survey unit are replaced with multiple surveys to subunits nested within the larger survey unit [@kendall2009].
+
+We consider the issue of non-reporting in the NCED to be analogous to this latter situation. Consider a US Census tract which does not, according to the NCED, contain an easement. This may be because social-ecological conditions within the tract preclude an easement or because easement holders have chosen not to report them. There are a variety of reasons that voluntary conservation actions may be inconsistently reported. Conservation organizations, typical easement holders, may withhold information on easement location due to privacy concerns of the partnering landowner, legal restrictions, or fear of unintended use of the information (Rissman et al. 2017). Privacy concerns, the potential for trespassing, fear of additional monitoring or compliance burdens also prevent the easement grantor (i.e. landowner) may curtail the sharing of information by private landowners (Rissman et al. 2017).
+
+We adapt the single-season occupancy model of [@mackenzie2002] to the nested geographies of the US Census by letting the true (but partially observed) occupancy status of _tract_ = 1,..., _n_ be $z_{t}$, where $z_{t}$ = 1 if the tract has an easement and 0 if not. Within each tract there are _block groups_ = 1, ..., _j_  that serve as nested subunits analagous to those used in broad-scale wildlife monitoring efforts. Assuming that individuals do not report non-existent easements (i.e., no false positives), the observed occupancy, $y_{t, bg}$ of $block group_{j}$ within $tract_{i}$ will be 0 if $z_{tract}$ = 0, but may be 1 (reported) or 0 (not-reported) if $z_{tract}$ = 1. This gives rise to the standard specification for the single season occupncy model [e.g., @Royle2008]:
+\[
+\begin{eqnarray}
+[y_{t,bg}] & \sim & \mathrm{Bern}(\Psi_{tract,i})\\
+y_{tract\ i, block group\ j}|z_{tract,i} & \sim & \mathrm{Bern}(\Psi_{tract,i}p_{tract\ i, block group\ j})
+\end{eqnarray}
+\]
+where 
