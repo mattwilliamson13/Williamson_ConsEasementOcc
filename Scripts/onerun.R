@@ -1,3 +1,4 @@
+#!/usr/bin/Rscript
 library(lhs)
 library(tidyverse)
 
