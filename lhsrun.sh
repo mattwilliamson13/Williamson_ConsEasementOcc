@@ -4,6 +4,7 @@
 #SBATCH --partition=med
 #SBATCH --mem=5Gb
 #SBATCH --time=02:00:00
+#SBATCH --exclude=c8-94
 #SBATCH --mail-user=mwilliam@ucdavis.edu
 #SBATCH --mail-type=ALL
 
