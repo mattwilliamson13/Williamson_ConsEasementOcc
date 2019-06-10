@@ -10,7 +10,7 @@ print(paste0("run = ", run))
 stan.idx <- as.numeric(args[2])
 print(paste0("stan.idx = ", stan.idx))
 
-inputn <- Sys.getenv("SLURM_ARRAY_TASK_ID")
+inputn <- as.numeric(Sys.getenv("SLURM_ARRAY_TASK_ID"))
 
 # Set seed and simulaiton parms -------------------------------------------
 
