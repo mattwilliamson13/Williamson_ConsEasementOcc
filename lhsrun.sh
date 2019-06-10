@@ -21,7 +21,7 @@ cd $SCRATCH
 srun ls
 Rscript --vanilla ./Scripts/onerun.R ${1} ${2}
 
-srun cp -r $SCRATCH/*.rds $SLURM_SUBMIT_DIR/Outputs/
+srun cp -r $SCRATCH/*.rds $SLURM_SUBMIT_DIR/Outs/
 
 echo Removing $SCRATCH
 srun rm -rf $SCRATCH || exit $?
