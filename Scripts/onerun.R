@@ -6,7 +6,9 @@ library(tidyverse)
 args <- commandArgs(trailingOnly = TRUE)
 print(args)
 run <- as.numeric(args[1])
+print(paste0("run = ", run))
 stan.idx <- as.numeric(args[2])
+print(paste0("stan.idx = ", stan.idx))
 
 inputn <- Sys.getenv("SLURM_ARRAY_TASK_ID")
 
