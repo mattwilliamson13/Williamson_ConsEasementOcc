@@ -3,7 +3,7 @@
 #SBATCH --cpus-per-task=6
 #SBATCH --partition=med
 #SBATCH --mem=5Gb
-#SBATCH --time=02:00:00
+#SBATCH --time=03:00:00
 #SBATCH --mail-user=mwilliam@ucdavis.edu
 #SBATCH --mail-type=ALL
 
