@@ -233,7 +233,7 @@ phi.occ.bias <- NA
 #  filter(., grepl("*occ.*", term)) %>% 
 #  mutate(truth = phi.occ[as.numeric(str_extract(term, regexp))],
 #         relBias = (estimate - truth)/abs(truth))
-phi.det.bias
+phi.det.bias <- NA
 #phi.det.bias <- phi.draws %>% 
 #  filter(., grepl("*det.*", term)) %>% 
 #  mutate(truth = phi.p[as.numeric(str_extract(term, regexp))],
