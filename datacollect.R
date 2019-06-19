@@ -1,0 +1,1 @@
+####Remember that b1 needs to be converted to logis
