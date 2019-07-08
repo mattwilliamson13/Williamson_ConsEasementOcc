@@ -1,21 +1,21 @@
 ---
-title: "Using occupancy models to improve inferences for conservation easements"
-author: "Matthew A Williamson"
-date: "5/22/2019"
+title: "Methods"
+author: "Matt Williamson"
+date: "6/24/2019"
 output:
-  officedown::rdocx_document
+  pdf_document:
+    fig_caption: yes
+  html_document:
+    df_print: paged
 header-includes:
 - \usepackage[ singlelinecheck=false, justification=justified, bf ]{caption}
 - \usepackage{wrapfig}
 - \usepackage{bm}
-csl: methods-in-ecology-and-evolution.csl
-bibliography: refs.bib
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, tidy=TRUE, tidy.opts = list(blank = FALSE, width.cutoff = 60), size="small")
 options(xtable.comment = FALSE)
-library(here)
 require(tidyverse)
 require(xtable)
 require(kableExtra)
@@ -24,85 +24,86 @@ library(tigris)
 library(sf)
 library(spdep)
 library(jpeg)
-library(officedown)
+
 options(tigris_use_cache = TRUE)
 ```
 
-## Introduction
-Conservation planning is, necessarily, an activity that involves social, political, economic, and biological choices and trade-offs [@margules2000]. The degree-to-which the spatial juxtaposition of these factors affects the likelihood that conservation actually occurs is rarely evaluated empirically making it difficult to identify general drivers of conservation action or to develop conservation plans that account for both economic and socio-political cost [@williamson2018]. The ability to evaluate the key factors affecting conservation adoption or identify locations likely to adopt new conservation actions requires information on where similar actions have occurred in the past. Spatially explict information on conservation actions is increasingly available, but is often incomplete due to capacity limitations or privacy restrictions [@rissman2017].
-
-Incomplete records in geospatial data on conservation adooption creates a situation analogous to that of imperfect detection often encountered wildlife population monitoring and habitat modelling. Cryptic species, variability in activity levels, and differing levels of observer skill all create situations where a species may go unobserved at a location despite being present. This can result in biased estimates of species occurrence and lead to spurious inferences with respect to the relationship between predictors and occurrence probability [@gu2004; @kellner2014]. Similarly, the presence of a conservation activity (e.g., a conservation easement) that goes unreported may induce similar biases in efforts to determine the predictors of adoption because locations where the activity is absent are ambiguous (i.e., the activity may truly be absent or it may be present, but unreported in the database under consideration). For example, if income increases the likelihood that an individual adopts a particular action, but decreases the likelihood that they report it, observations of that action will appear unrelated to income.
-
-Occupancy models, a suite of flexible models that use repeated surveys to estimate the probability that a site is truly occupied by a species while accounting for imperfect detection [@mackenzie2002; @mackenzie2017], are increasingly applied across a wide range of ecological problems to reduce bias induced by imperfect or heterogenous detection [reporting; @bailey2014]. Occupancy, defined as the proportion of sites where an object of interest (either a species or a conservation action) is present, is modeled as the result of two linked processes. The state process which describes where the object occurs and the observation process which describes how the object is detected at each sample location [@mackenzie2002; @guillera2014]. Although occupancy models may more accurately represent the data generation process [@guillera2014], they require at least one additional axis of information relative to a more standard logistic regression or generalized linear model which may result in unstable parameter estimates and/or parameters that are not uniquely identifiable [@welsh2013]. Further, occupancy models assume that the occupancy state is closed (i.e. occupancy does not change within the sampling season), sites are independent (detection of the object at one location does not affect detection at another), and no unexplained heterogeneity in occupancy or detectibility [@mackenzie2002]. Violations of these assumptions are likely in attempts to model human behaviors as norms, social networks, and institutional arrangements may violate independence assumptions or induce unmodeled heterogeneity. Hence, occupancy models may trade one problem (i.e. unmodeled reporting probability) for another (unidentifiable or biased parameters) when applying them to conservation actions or behaviors.
-
-Here we evaluate the utility of occupancy models for developing models of incompletely reported data on conservation actions. We use conservation easements, land-use agreements in which a landowner agrees to limit land use in exchange for direct payments or reduced tax burdens, as a motivating example becasue conservation easements are a key element of contemporary efforts to augment the existing protected areas network in the United States [@cheever2014] and because the location of many easments is reported in the National Conservation Easement Database (https://www.conservationeasement.us). The National Conservation Easement Database contains voluntarily reported easement boundaries and associated information for an estimated 60% of easements in the United States. We describe efforts to relate spatial predictors to easement occurrence as a situation analogous to efforts to model the occupancy probability of a species as a function of predictors describing potential elements of that species habitat. We use a series of simulation experiments to evaluate the performance of different model structures under conditions that are germane to modelling easement occurrence. Finally, we use a case study of conservation easements in Montana and Idaho to illustrate differences in inference that arise from different modelling choices.
-
-### Single-season Occupancy models
-Typical occupancy studies are based on a design wherein a number of survey units are visited by trained observers multiple times during the course of a study period and the presence or absence of the target species is recorded. Observed absences may be the result of the species being truly absent from the location or the species being present, but not detected [@mackenzie2002]. As such, data from occupancy surveys arise from the interaction of the ecological process that determines where a species occurs and an observation process that determines whether the observer records the species when it is present. Multiple visits to a site help distinguish between the two [@johnson2013spatial]. In situations where multiple visits to the same site is not possible (e.g., spatially extensive monitoring programs, remote sampling locations where repeat visits are cost prohibitive), spatial sub-units of the primary location have been used as a means of trading space for time with each spatial sub-unit treates as a repeat visit of the primary sample location [@kendall2009; pavlacky2012; @crosbyporter2018].
-
-We consider the issue of non-reporting in spatial databases of conservation action to be analogous to this latter situation. Consider a US Census tract which does not, according to the NCED, contain an easement. This may be because social-ecological conditions within the tract preclude an easement or because easement holders have chosen not to report them. There are a variety of reasons that voluntary conservation actions may be inconsistently reported. Conservation organizations, typical easement holders, may withhold information on easement location due to privacy concerns of the partnering landowner, legal restrictions, or fear of unintended use of the information (Rissman et al. 2017). Privacy concerns, the potential for trespassing, fear of additional monitoring or compliance burdens also prevent the easement grantor (i.e. landowner) may curtail the sharing of information by private landowners (Rissman et al. 2017).
-
-We adapt the single-season occupancy model of [@mackenzie2002] to the nested geographies of the US Census by letting the true (but partially observed) occupancy status of _tract_ = 1,..., _n_ be $z_{t}$, where $z_{t}$ = 1 if the tract has an easement and 0 if not. This is the true occupancy state, but is only partially observable. Within each tract there are _block groups_ = 1, ..., _j_  that serve as nested subunits analagous to those used in broad-scale wildlife monitoring efforts. Assuming that individuals do not report non-existent easements (i.e., no false positives), the observed occupancy, $y_{t, bg}$ of $block group_{j}$ within $tract_{i}$ will be 0 if $z_{tract}$ = 0, but may be 1 (reported) or 0 (not-reported) if $z_{tract}$ = 1. This gives rise to the standard specification for the single season occupncy model [e.g., @royle2008]:
-\[
-\begin{aligned}
-\left[y_{ij}|z_{i},p_{ij}\right] & = \mathrm{Bernoulli}(z_i,p_{ij})\\
-\left[z_i | \psi_i\right] & = \mathrm{Bernoulli}(\psi_i) 
-\end{aligned}
-\]
-where $p_{ij}$ is the probability of reporting an easement (given that it occurs) for block group $j$ in tract $i$ and $\psi_{i}$ is the probability that an easement occurs in tract $i$. These probabilities can then be used to estimate the likelihood that a particular pattern of detections/nondetections occur. For example, consider tract _i_ with a detection history of $101$ indicating that two of the three block groups contain an easment. Based on that detection history, the likelihood for that tract would be:
-\[
-\begin{aligned}
-\psi_{i}p_{i1}(1-p_{i2})p_{i3}
-\end{aligned}
-\]
-indicating that tract _i_ was occupied with probability $\psi_{i}$ and either reported ($p_{i1}$ and $p_{i3}$) or not ($1-p_{i2}$). Relatedly, for tract _k_ with a detection history of $000$, the likelihood for this tract would be:
-\[
-\begin{aligned}
-\psi_k\prod_{j=1}^{3} (1-p_{kj}) + (1-\psi_k)
-\end{aligned}
-\]
-indicating that tract _k_ had an easement, but that easement went unreported at each block group (with probability $\psi_k\prod_{j=1}^{3} (1-p_{kj})$) or did not have an easement (with probability $1-\psi_k$).
-
-These likelihoods can be used to evaluate hypotheses regarding the key social, institutional, or ecological predictors associated with likelihood of a location having an easement ($\psi$) while attempting to account for variables that may impact the likelihood that the easement is reported ($p$) by introducing covariates to explain variaion in $\psi$ and $p$ such that:
-\[
-\begin{aligned}
-l(\psi_{i}) & = \textbf{x}_{i}\boldsymbol{\gamma}+\epsilon_{\psi}\\
-l(p_{ij}) & = \textbf{x}^{'}_{ij}\boldsymbol{\beta}+\epsilon_{p}
-\end{aligned}
-\]
-where $l(\cdot)$ is a link function (typically logit) to constrain $\psi_{i}$ and $p_{ij}$ to the [0,1] interval and $\boldsymbol{\gamma}$ and $\boldsymbol{\beta}$ are vectors of regression coefficients relating covariates $\textbf{x}_{i}$ and $\textbf{x}^{'}_{ij}$ to $\psi$ and $p$, respectively and $\epsilon$ are independent errors.
-
-### Substituting space for time
-Because the datasets we envision here are generally a static snapshot of conservation behaviors, we are forced to use spatial subunits as a means of resampling a given tract. The closure assumption of the occupancy model presented here implies that if a sample unit (i.e., tract) is occupied then each subunit should have a non-negligible probability of detection [@pavlacky2012; @hines2010]. This is unlikely to be true for sessile organisms [@hines2010] and for conservation actions with spatialy fixed boundaries. In these instances, the observation process is composed of both the probability of detection ($p_d$) and the probability that an object of interest is available for sampling at the spatial subunit ($p_a$) [@guillera2011]. Revisiting tract _i_ with a detection history of $101$, the introduction of $p_a$ results in the likelihood:
-\[
-\begin{aligned}
-\psi_{i}p_{a_{i1}}p_{d_{i1}} \left[(1-p_{a_{i2}}) + p_{a_{i2}}(1-p_{d_{i2}})\right]p_{a_{i3}}p_{d_{i3}}
-\end{aligned}
-\]
-where the absence is now expressed as the probability that the block group is available, but the easement was unreported ($p_{a_{i2}}(1-p_{d_{i2}})$) or the block group was unavailable ($1-p_{a_{i2}}$). Unless $p_d$ and $p_a$ are modeled explicitly or surveys are designed explicitly (e.g., sampling with replacement) to control for variation in $p_a$, $p_a$ and $p_d$ may be confounded resulting in a situation where estimates of detection probability are biased low and occupancy are biased high [@kendall2009]. This may be particularly problematic for efforts to characterize conservation action as not all locations within a tract may actually be available for the action. For example, conservation easements may not be possible in areas with no undeveloped land. Studies of wildlife occupancy have relied on the use of multiple detection methods or the ability to split transects into temporal "subsamples" based on the order in which locations are visited [e.g., @nichols2008; @hines2010; @pavlacky2012]; however, such approaches are rarely available when considering national databases of conservation actions. 
-
-### Autocorrelation in occupancy or detection
-Occupancy models assume that the occupancy state of one sample location is independent of the state of another sample location. Yet, in many instances sample locations near each other are more likely to be similar than those far apart (Tobler!!). Residual (i.e., after accounting for the effects of covariates) spatial autocorrelation may lead to biased estimates or overestimated precision leading to a number of efforts to account for spatial structure in the occupancy process [@johnson2013spatial]. The independence assumption can be relaxed by explicitly modeling the covariance matrix of the residuals, $\boldsymbol\Sigma$, as a function of the locations where the response variable was collected [@verhoef2018]. Autoregressive models provide a means of modeling $\boldsymbol\Sigma$ for areal data. Modeling the effect of covariates on occupancy then becomes:
-\[
-\begin{aligned}
-l(\psi_{i}) & = \textbf{x}_{i}\boldsymbol{\gamma} + \textbf{z}_{i} +\epsilon\\
-\end{aligned}
-\]
-where $\textbf{z}$ is a latent spatial random error distributed as $\textbf{z} \sim \mathcal{N}(0,\boldsymbol\Sigma)$ and
-
-\[
-\begin{aligned}
-\boldsymbol\Sigma=\tau(D-\rho W)^{-1}
-\end{aligned}
-\]
-resulting in the conditional autoregressive (CAR) model with a spatially varying precision paramater ($\tau$), a diagonal matrix with the number of neighbors for a given location ($D$), a neighbor matrix ($W$), and the strength of spatial dependence ($\rho$). In addition to allowing relaxation of the independence assumption, autoregressive models may also improve estimation of parameters of interest by using estimates from nearby locations to smooth over potential measurement error such as that arising from the detection process [@verhoef2018].
-
 ## Methods
-Our interest was in evaluating the bias that arises from (potentially unmodeled) variation in the probability of reporting an easement (given that it is there), the probability that a spatial location is available for an easement, and spatial autocorrelation in both occupancy and reporting probability. We evaluate the potential for bias across a series of different model formulations using a series of simulations. We then explore the implications of those biases in the context of a case study of conservation easements in Idaho and Montana.
+Our interest was in evaluating the bias that arises from (potentially unmodeled) variation in the probability of reporting an easement (given that it is there), the probability that a spatial location is available for an easement, and spatial autocorrelation in both occupancy and reporting probability.
 
-### Simulation study
+### The models
+
+The model used to generate the data was:
+
+\[
+\begin{aligned}
+z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
+logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X} +\phi_{i}\\
+v_{i} | z_{i} & \sim  \operatorname{Bin}(n_{bg}, \alpha*z_{i})\\
+y_{i,j} | v_{i} z_{i} & \sim   \operatorname{Bern}(p_{i,j} * z_{i} * v_{i})\\
+logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X} +\phi_{i,j}\\
+\end{aligned}
+\]
+
+where v=1 if available and 0 if not and n_bg is the number of block groups within a tract.
+
+The models that I actually fit were as follows:
+Note that I did not explicitly model $\alpha$ because this would be difficult to do in-practice and my interest was in whether the approach would be robust to leaving that component out of the model (despite its role in the generating process)
+
+Occupancy with CAR on both components
+
+\[
+\begin{aligned}
+z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
+logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X} +\phi_{i}\\
+y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
+logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X} +\phi_{i,j}
+\end{aligned}
+\]
+
+Occupancy with CAR on occupancy only
+
+\[
+\begin{aligned}
+z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
+logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X} +\phi_{i}\\
+y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
+logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X}
+\end{aligned}
+\]
+
+Occupancy with CAR on detection only
+\[
+\begin{aligned}
+z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
+logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X}\\
+y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
+logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X} +\phi_{i,j}
+\end{aligned}
+\]
+
+Occupancy with no CAR component
+
+\[
+\begin{aligned}
+z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
+logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X}\\
+y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
+logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X}
+\end{aligned}
+\]
+
+Binomial fit to the tract (i) level
+
+\[
+\begin{aligned}
+y_{i} & \sim   \operatorname{Bern}(p_{i})\\
+logit(p) & =  \beta_{0} + \beta\textbf{X} + \phi_{i}
+\end{aligned}
+\]
+
 ### Generating covariate observations
-We used the tracts and block groups for Iowa as the basis for developing our simulated datasets. We generated random data values for each of three predictors at the tract-level and two predictors at the block group-level. Because predictors may also be spatially autocorrelated, we simulated these data from $x_{i} \sim  \mathcal{N_{k}}(\bm{\mu} = 0,\bm{\Sigma} = \phi)$ where $\phi \sim \mathcal{N}(0,[\tau(D-\rho W)]^{-1})$ and $\tau$, the spatially varying precision paramater is 1; $\rho$, the strength of spatial dependence is 0.3, $D$ is a diagonal matrix containing the number of neighbors for a given location, and $W$ is an adjacency matrix. We defined adjacency by determining the minimum distance necessary to ensure that all locations had at least one neighbor and considering to locations to be adjacent if they were within that distance from each other.
+We used the tracts and block groups for Iowa as the basis for developing our simulated datasets. We generated random data values for each of three predictors at the tract-level and two predictors at the block group-level. Because predictors may also be spatially autocorrelated, we simulated these data from $x_{i} \sim  \mathcal{N_{k}}(\boldsymbol{\mu} = 0,\boldsymbol{\Sigma} = \phi)$ where $\phi \sim \mathcal{N}(0,[\tau(D-\rho W)]^{-1})$ and $\tau$, the spatially varying precision paramater is 1; $\rho$, the strength of spatial dependence is 0.3, $D$ is a diagonal matrix containing the number of neighbors for a given location, and $W$ is an adjacency matrix. We defined adjacency by determining the minimum distance necessary to ensure that all locations had at least one neighbor and considering to locations to be adjacent if they were within that distance from each other.
 
 ```{r geography, eval = FALSE, message=FALSE}
 #get a dummy geography
@@ -172,7 +173,7 @@ We used a Latin hypercube design to evaluate model performance across a range of
 lhs.params <- data.frame(Variables = c('$\\Psi$', '$p$', '$\\rho_{\\Psi}$', '$\\rho_{p}$','$\\tau$', '$\\alpha$'),
                          Lower = c(0.2, 0.3, 0.5, 0.5, 0.1, 0.2),
                          Upper = c(0.8, 0.98, 0.999, 0.999, 1.0, 0.8))
-print(xtable(lhs.params), booktabs = T, floating = FALSE, latex.environments="flushright", table.placement="H", include.rownames=FALSE, sanitize.text.function = function(x) {x})
+print(xtable(lhs.params), booktabs = T, floating = FALSE, latex.environments="flushright", table.placement="H", include.rownames=FALSE, sanitize.text.function = function(x) {x}) 
 ```
 \vspace{-5pt}
 \end{wraptable}
@@ -283,79 +284,6 @@ We generated 50 replicates [only showing results from 4 here] of each Latin hype
 \[
 RelBias = \frac{\hat\beta -\beta}{|\beta|}
 \]
-
-The model used to generate the data was:
-
-\[
-\begin{aligned}
-z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
-logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X} +\phi_{i}\\
-v_{i} | z_{i} & \sim  \operatorname{Bin}(n_{bg}, \alpha*z_{i})\\
-y_{i,j} | v_{i} z_{i} & \sim   \operatorname{Bern}(p_{i,j} * z_{i} * v_{i})\\
-logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X} +\phi_{i,j}\\
-\end{aligned}
-\]
-
-where v=1 if available and 0 if not and n_bg is the number of block groups within a tract.
-
-The models that I actually fit were as follows:
-Note that I did not explicitly model $\alpha$ because this would be difficult to do in-practice and my interest was in whether the approach would be robust to leaving that component out of the model (despite its role in the generating process)
-
-Occupancy with CAR on both components
-
-\[
-\begin{aligned}
-z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
-logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X} +\phi_{i}\\
-y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
-logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X} +\phi_{i,j}
-\end{aligned}
-\]
-
-Occupancy with CAR on occupancy only
-
-\[
-\begin{aligned}
-z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
-logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X} +\phi_{i}\\
-y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
-logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X}
-\end{aligned}
-\]
-
-Occupancy with CAR on detection only
-\[
-\begin{aligned}
-z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
-logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X}\\
-y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
-logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X} +\phi_{i,j}
-\end{aligned}
-\]
-
-Occupancy with no CAR component
-
-\[
-\begin{aligned}
-z_{i} & \sim  \operatorname{Bern}(\psi_{i})\\
-logit(\psi_{i}) & =  \beta_{0} + \beta\textbf{X}\\
-y_{i,j} | z_{i} & \sim   \operatorname{Bern}(p_{i,j}*z_{i})\\
-logit(p_{i,j}) & =  \gamma_{0} + \gamma\textbf{X}
-\end{aligned}
-\]
-
-Binomial fit to the tract (i) level
-
-\[
-\begin{aligned}
-y_{i} & \sim   \operatorname{Bern}(p_{i})\\
-logit(p) & =  \beta_{0} + \beta\textbf{X} + \phi_{i}
-\end{aligned}
-\]
-
-
-
-
 
 ```{r stanprep, eval=FALSE}
 stan_data_mbj <- list(
@@ -781,5 +709,4 @@ model {
 }
 
 ```
-
 
