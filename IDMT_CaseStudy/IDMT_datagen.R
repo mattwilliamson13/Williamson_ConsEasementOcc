@@ -1,27 +1,14 @@
-stan_data_mbj <- list(
-  n_site = nrow(geog.tct),
-  m_psi = m.tct,
-  X_tct = X.tct,
-  total_surveys = nrow(geog.bg),
-  m_p = m.bg,
-  X_bg = X.bg, 
-  site = survey.df$site,
-  y = survey.df$y,
-  start_idx = start_idx,
-  end_idx = end_idx,
-  any_seen = any_seen,
-  n_survey = n_survey,
-  W_tct = err.prec.matx.tct[[1]],
-  W_n_tct = sum(err.prec.matx.tct[[1]]/2),
-  W_bg = err.prec.matx.bg[[1]],
-  W_n_bg = sum(err.prec.matx.bg[[1]]/2)
-)
 library(sf)
 library(tigris)
 library(tidyverse)
 library(spdep)
 library(rstan)
 library(tidycensus)
+library(raster)
+library(tidyverse)
+library(magrittr)
+library(stringi)
+
 options(mc.cores = parallel::detectCores())
 options(tigris_use_cache = TRUE)
 census_api_key('baaaffb5ed3accd8dfa53c6f827659d43fcdfa21') #get this from the census api webpage see help(census_api_key) for details
@@ -44,7 +31,7 @@ tct <- reduce(
   map(st, function (x) tracts(x) %>% 
         as(. ,"sf") %>% 
         st_transform(., prj)),
-    rbind)
+  rbind)
 
 bg <- reduce(
   map(st, function (x) block_groups(x) %>% 
@@ -53,9 +40,9 @@ bg <- reduce(
   rbind)
 
 ##Download the most recent NCED file
-download.file("https://www.conservationeasement.us/data_downloads/NCED_09062018.zip", here::here("DataArchive","NCED09062018.zip"))
-unzip(here::here("DataArchive","NCED09062018.zip"),exdir=here::here("DataArchive"))
-ease <- read_sf(here::here("DataArchive/NCED_09062018/", "NCED_Polygons.shp")) %>% 
+download.file("https://www.conservationeasement.us/data_downloads/NCED_09062018.zip", "D:/Data/IDMTDataArchive/NCED09062018.zip")
+unzip("D:/Data/IDMTDataArchive/NCED09062018.zip",exdir="D:/Data/IDMTDataArchive")
+ease <- read_sf("D:/Data/IDMTDataArchive/NCED_09062018/NCED_Polygons.shp") %>% 
   subset(., state %in% st) %>% 
   st_transform(., prj)
 
@@ -85,8 +72,6 @@ block.group.easements$GEOID <- as.character(block.group.easements$GEOID)
 #reorder to match neighbor matrix
 bg.easements <- block.group.easements[order(block.group.easements$GEOID),]
 
-#get tract ids from blockgroup
-bg.in.tct <- rethinking::coerce_index(str_sub(bg.easements$GEOID, 1, 11))
 #Note that group_by reorders output; that's okay because the neighbor matrix code does that too
 
 tct.ease <- block.group.easements %>% 
@@ -94,11 +79,11 @@ tct.ease <- block.group.easements %>%
   summarise(tot_ease = sum(NumEase),
             tot_bg_w_ease = sum(EasePres)) %>% 
   mutate(EasePres = if_else(tot_ease > 0, 1, 0))
-                       
+
 
 # Get tract level census info ---------------------------------------------
 
-sfips <- unique(str_sub(bg.easements$GEOID,1,2)) #create a lookup for tidycensus based on state sfips
+sfips <- unique(str_sub(bg$GEOID,1,2)) #create a lookup for tidycensus based on state sfips
 
 med.inc.tct <- map_df(sfips, function(x) {
   get_acs(geography = "tract", variables = "B20002_001E", 
@@ -117,9 +102,161 @@ med.age.tct <- map_df(sfips, function(x) {
 colnames(med.age.tct)[3] <- "medagetct"
 
 
-# Get tract level institutional data --------------------------------------
-#FROM THEOBALD 2014 PLOS One (had to do this manually because the files weren't downloading or unzipping properly from R)
-download.file("http://csp-inc.org/public/NLUD2010_20140326.zip", here::here("DataArchive","NLUD2010.zip"))
-unzip(here::here("DataArchive","NLUD2010.zip"),exdir=here::here("DataArchive"))
-unzip(here::here("DataArchive","NLUD2010_W_20140326.zip"),exdir=here::here("DataArchive"))
+# Get maximum rarity weighted richness ------------------------------------
 
+rwr.tract <- readRDS("D:/Data/IDMTDataArchive/rwr_tract.rds")
+max.rwr <- map(seq_along(rwr.tract), function(x)
+  map(seq_along(rwr.tract[[x]]), function(y) max(rwr.tract[[x]][[y]], na.rm = TRUE))
+)  
+tct.names <- map(seq_along(rwr.tract), function(x) names(rwr.tract[[x]])) %>% unlist()
+rwr.mx.df <- data.frame(GEOID = tct.names,
+                        mxRWR = unlist(max.rwr))
+
+
+# Get variance of wildness ------------------------------------------------
+
+wild.tract <- readRDS("D:/Data/IDMTDataArchive/wildness_tract.rds")
+var.wild <- map(seq_along(wild.tract), function(x)
+  map(seq_along(wild.tract[[x]]), function(y) sd(wild.tract[[x]][[y]], na.rm = TRUE)^2)
+)  
+wild.names <-  map(seq_along(wild.tract), function(x) names(wild.tract[[x]])) %>% unlist()
+wild.var.df <- data.frame(GEOID = wild.names,
+                          varWILD = unlist(var.wild))
+
+# Calculate Theobalds entropy index ---------------------------------------
+lu.tract <- readRDS("D:/Data/IDMTDataArchive/LU_extract.rds")
+
+entropy_prop <- function(lu.vect){
+  lu.char = as.character(lu.vect[[1]])
+  prop.live = mean(stri_detect_regex(lu.char, "^21."), na.rm=TRUE)
+  prop.work1 = mean(stri_detect_regex(lu.char, "^22."), na.rm=TRUE)
+  prop.work2 = mean(stri_detect_regex(lu.char, "^23."), na.rm=TRUE)
+  prop.work3 = mean(stri_detect_regex(lu.char, "^24."), na.rm=TRUE)
+  prop.work = sum(prop.work1, prop.work2, prop.work3, na.rm = TRUE)
+  prop.play = mean(stri_detect_regex(lu.char, "^4."), na.rm=TRUE)
+  prop.shop = mean(stri_detect_regex(lu.char, "^222"), na.rm=TRUE)
+  df = data.frame(GEOID = names(lu.vect),
+                  plive = if_else(prop.live == 0,1e-19, prop.live),
+                  pwork = if_else(prop.work == 0,1e-19, prop.work),
+                  pplay =if_else(prop.play == 0,1e-19, prop.play),
+                  pshop = if_else(prop.shop == 0,1e-19, prop.shop)
+                  
+  )
+}
+
+
+end.df.tct <- map(seq_along(lu.tract), function (x) seq_along(lu.tract[x][[1]]) %>% 
+                    map(. , function(y) entropy_prop(lu.tract[x][[1]][y])))
+entropy.df.tct <-  map(seq_along(end.df.tct), function (x) end.df.tct[[x]] %>% bind_rows()) %>% 
+  bind_rows(.) %>% 
+  mutate(E = -((plive * log(plive) + pwork * log(pwork) + pplay * log(pplay) + pshop * log(pshop))/log(4)))
+
+entropy.df.tct <- readRDS("D:/Data/IDMTDataArchive/landuseent_tract_df.rds")
+
+# load block group covariate ----------------------------------------------
+
+impervious.bg <- readRDS("D:/Data/IDMTDataArchive/impervious_surf_bg.rds")
+mean.imp.surf <- map(seq_along(impervious.bg), function(x)
+  map(seq_along(impervious.bg[[x]]), function(y) median(impervious.bg[[x]][[y]], na.rm = TRUE))
+)  
+bg.names <- map(seq_along(impervious.bg), function(x) names(impervious.bg[[x]])) %>% unlist()
+
+imp.surf.mean.df <- data.frame(GEOID = bg.names,
+                               mnImpSurf = unlist(mean.imp.surf))
+
+
+# make occupancy design matrix --------------------------------------------
+
+df.tct <- med.inc.tct %>% 
+  left_join(., ed.lvl.tct) %>% 
+  left_join(., entropy.df.tct) %>% 
+  left_join(., rwr.mx.df) %>% 
+  left_join(., wild.var.df) %>% 
+  mutate_all(~if_else(is.na(.x), median(.x, na.rm = TRUE), .x))    
+#check to make sure the tract variables are ordered the same as the easement and neighborhood variables
+identical(df.tct$GEOID, tct.ease$tctid)
+saveRDS(df.tct, "D:/Data/IDMTDataArchive/dftct.rds" )
+
+
+design.df <- df.tct %>% 
+  dplyr::select(., medinctct, percDeg10tct, E, mxRWR, varWILD) %>% 
+  mutate_all(~scale(.x))
+saveRDS(design.df, "D:/Data/IDMTDataArchive/designdf.rds" )
+occ.des.matx <- as.matrix(design.df) #using cty level varying intercept
+
+
+# Make bg design matrix ---------------------------------------------------
+imp.surf.mean.df$GEOID <- as.character(imp.surf.mean.df$GEOID)
+imp.surf.mean.df.ordered <- imp.surf.mean.df[order(imp.surf.mean.df$GEOID),] 
+
+bg.df <- st_set_geometry(bg, NULL) %>% 
+  dplyr::select(., GEOID, ALAND)
+bg.df$ALAND <- log10(as.numeric(bg.df$ALAND)) #log of area for sampling effort
+
+bg.des.df <- imp.surf.mean.df.ordered %>% 
+  left_join(., bg.df) %>% 
+  mutate_at(c("mnImpSurf", "ALAND"), scale)
+
+identical(as.character(bg.des.df$GEOID), bg.easements$GEOID)  
+  
+bg.des.matx <- as.matrix(bg.des.df[,c(2:3)]) #using cty level varying intercept
+
+
+# Set up indices ----------------------------------------------------------
+
+#get tract ids from blockgroup
+tct.in.cty <- rethinking::coerce_index(str_sub(tct.ease$tctid, 1, 5))
+bg.in.cty <-  rethinking::coerce_index(str_sub(imp.surf.mean.df.ordered$GEOID, 1, 5))
+survey_summary <- bg %>% 
+  group_by(., STATEFP, COUNTYFP, TRACTCE) %>% 
+  summarise(count = n())
+n_survey <- as.vector(survey_summary$count)
+total_surveys <- nrow(bg)
+
+survey.df <- tibble(site = rep(1:nrow(tct), n_survey),
+                    siteID = bg.easements$GEOID) %>% 
+  mutate(y = bg.easements$EasePres)
+
+# get start and end indices to extract slices of y for each site
+start_idx <- rep(0, nrow(tct))
+end_idx <- rep(0, nrow(tct))
+for (i in 1:nrow(tct)) {
+  if (n_survey[i] > 0) {
+    site_indices <- which(survey.df$site == i)
+    start_idx[i] <- site_indices[1]
+    end_idx[i] <- site_indices[n_survey[i]]
+  }
+}
+
+any_seen <- rep(0, nrow(tct))
+for (i in 1:nrow(tct)) {
+  if (n_survey[i] > 0) {
+    any_seen[i] <- max(survey.df$y[start_idx[i]:end_idx[i]])
+  }
+}
+
+identical(any_seen, tct.ease$EasePres)
+# Package for stan --------------------------------------------------------
+
+stan_data <- list(
+  n_cty = nrow(cty),
+  tctincty = tct.in.cty,
+  bgincty = bg.in.cty,
+  n_site = nrow(tct.ease),
+  m_psi = ncol(occ.des.matx),
+  X_tct = occ.des.matx,
+  total_surveys = nrow(bg.easements),
+  m_p = ncol(bg.des.matx),
+  X_bg = bg.des.matx, 
+  site = survey.df$site,
+  y = survey.df$y,
+  start_idx = start_idx,
+  end_idx = end_idx,
+  any_seen = any_seen,
+  n_survey = n_survey,
+  W_tct = tct.neighbors,
+  W_n_tct = sum(tct.neighbors/2),
+  W_bg = bg.neighbors,
+  W_n_bg = sum(bg.neighbors/2)
+)
+saveRDS(stan_data, "D:/Data/IDMTDataArchive/IDMTstanData.rds")

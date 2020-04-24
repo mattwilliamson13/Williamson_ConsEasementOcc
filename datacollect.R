@@ -2,6 +2,7 @@ library(tidyverse)
 library(magrittr)
 library(tidybayes)
 library(scales)
+library(patchwork)
 cluster.output.folder <- "D:/OccRuns/"
 
 model.names <- c("binom", "psiCARdetCAR", "psiCARdetSTD" ,"psiSTDdetCAR", "psiSTDdetSTD")
@@ -57,12 +58,19 @@ end.read <- Sys.time()
 saveRDS(psi.det.bias.list, here::here("Outputs", "bias_list_070519.rds"))
 
 ###UPDATE THESE AFTER YOU READ IN
-
-
-psi.reg.bias <-  map(seq_along(psi.det.bias.list), 
+psi.det.bias.list <- readRDS(here::here("DataArchive", "bias_list_070519.rds"))
+mean.psi.bias <- map(seq_along(psi.det.bias.list), 
                      function(x) magrittr::extract2(psi.det.bias.list[[x]],1)) %>% 
   bind_rows() %>% 
-  filter(term != "beta_psi[1]")
+  filter(grepl("beta_psi*", term)) 
+
+psi.bias <- mean.psi.bias %>%
+  mutate(param = if_else(term == "beta_psi[1]", "Intercept", "Coefficient"))
+
+#psi.reg.bias <-  map(seq_along(psi.det.bias.list), 
+#                     function(x) magrittr::extract2(psi.det.bias.list[[x]],1)) %>% 
+#  bind_rows() %>% 
+#  filter(term != "beta_psi[1]")
 
 mean.p.bias <-  map(seq_along(psi.det.bias.list), 
                     function(x) magrittr::extract2(psi.det.bias.list[[x]],2)) %>% 
@@ -75,10 +83,6 @@ p.reg.bias <-  map(seq_along(psi.det.bias.list),
   filter(term != "beta_p[1]")
 
 # Plot functions -------------------------------------------------------------------
-mean.psi.bias <- map(seq_along(psi.det.bias.list), 
-                     function(x) magrittr::extract2(psi.det.bias.list[[x]],1)) %>% 
-  bind_rows() %>% 
-  filter(term == "beta_psi[1]")
 
 
 
@@ -112,36 +116,294 @@ custom_y_breaks <- function(x)
 
 gen_summary_plots <- function(base.data.frame, mod.name, plot.group){
   ##subset data and round based on the plotting variable of interest
-  data.subset <- base.data.frame %>% 
+  pg <- plot.group
+  data.subset.05 <- base.data.frame %>% 
     #filter(., rHats == 0) %>%
     filter(., mod == mod.name)  %>% 
-    mutate(rounded = round(!!rlang::ensym(plot.group)/0.05) *0.05)
-  
-  ##get the median of the posterior of each individual run
-  post.med.fit <- data.subset %>% 
-    group_by(iterID, truth,p, avail, tau, occ) %>% 
-    summarise(medbias = median(relBias))
-  
-  ##get the median for all models at a given rounded value for plotting
-  post.med.mod <- data.subset %>%
+    mutate(rounded = round(!!rlang::ensym(pg)/0.05) *0.05) %>% 
     group_by(rounded) %>% 
-    summarise(medbias = median(relBias))
+    median_qi(relBias, .width = c(0.5, 0.75, 0.9)) 
+ 
+   data.subset.1 <-base.data.frame %>% 
+    #filter(., rHats == 0) %>%
+    filter(., mod == mod.name)  %>% 
+    mutate(rounded = round(!!rlang::ensym(pg)/0.1) *0.1) %>% 
+    group_by(rounded) %>% 
+    median_qi(relBias, .width = c(0.5, 0.75, 0.9))
   
-  ##get the median for a rounded value within a run
-  post.med.run <- data.subset %>%
-    group_by(runID, rounded) %>% 
-    summarise(medbias = median(relBias))
+  p <- ggplot() + 
+    geom_pointinterval(data = data.subset.1, mapping = aes(x = rounded, y = relBias)) +
+    geom_hline(yintercept = 0, color = "gray60", linetype = 2, size = 1.1) +
+    geom_line(data = data.subset.05, mapping = aes(x = rounded, 
+                                                   y = relBias),color = "blue", size = 1.5) +
+    ylab("Relative bias") +
+    xlab(plot.group)+
+    theme_bw()
+  }
+
+psi.bias.smple <- psi.bias %>% filter(param == "Coefficient")
+psi.bias.smple.int <- psi.bias %>% filter(param == "Intercept")
+plt.grps <- c("p","avail", "occRHO")
+binom.plots <- map(seq_along(plt.grps), function (x)
+                   gen_summary_plots(base.data.frame = psi.bias.smple, mod.name = "binom.stan", plot.group = as.character(plt.grps[x])))  
+
+binom.plot.group <- binom.plots[[1]] + xlab("Reporting probability") + labs(title = "Naive Logistic Regression", subtitle = "Reporting") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  binom.plots[[2]] + xlab("Availability") + ylab("") + labs(subtitle = "Availability") + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) +
+  binom.plots[[3]] + xlab(expression(rho[occurrence])) + ylab("") + labs(subtitle = "Spatial \nAutocorrelation") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + plot_layout(ncol = 3)  
   
-  ggplot(data = post.med.fit, mapping = aes(x=!!rlang::ensym(plot.group), y = medbias)) + 
-    geom_point(color = "gray80", alpha=0.2) +
-    geom_line(data = post.med.run, mapping = aes(x = rounded, y = medbias, group=runID), color = "gray60") +
-    geom_line(data = post.med.mod, mapping = aes(x = rounded, y = medbias), color = "blue") +
-    geom_point(data = subset(post.med.fit, p <= quantile(p, 0.1) & avail <= quantile(p, 0.1)), 
-               mapping = aes(x=!!rlang::ensym(plot.group), y = medbias), color = "red") +
-    scale_y_continuous(trans = 'custom_log_y', breaks=custom_y_breaks(post.med.fit$medbias)) +
-    theme_minimal() +
-    ylab("Relative bias")
+psi.CAR.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple, mod.name = "psiCARdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.CAR.plot.group <- psi.CAR.det.CAR.plots[[1]] + xlab("Reporting probability") + labs(title = "Occupancy Model with CAR on both components \n(OCC-CAR1)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.CAR.det.CAR.plots[[2]] + xlab("Availability") + ylab("") + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.CAR.det.CAR.plots[[3]] + xlab(expression(rho[occurrence])) + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + plot_layout(ncol = 3)  
+
+
+psi.CAR.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple, mod.name = "psiCARdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.STD.plot.group <- psi.CAR.det.STD.plots[[1]] + xlab("Reporting probability") + labs(title = "Occupancy Model with CAR on occurrence only \n(OCC-CAR2)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.CAR.det.STD.plots[[2]] + xlab("Availability") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.CAR.det.STD.plots[[3]] + xlab(expression(rho[occurrence])) + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + plot_layout(ncol = 3)  
+
+psi.STD.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple, mod.name = "psiSTDdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.CAR.plot.group <- psi.STD.det.CAR.plots[[1]] + xlab("Reporting probability") + labs(title = "Occupancy Model with CAR on reporting only \n(OCC-CAR3)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.STD.det.CAR.plots[[2]] + xlab("Availability") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.STD.det.CAR.plots[[3]] + xlab(expression(rho[occurrence])) + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + plot_layout(ncol = 3)  
+
+
+psi.STD.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple, mod.name = "psiSTDdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.STD.plot.group <- psi.STD.det.STD.plots[[1]] + xlab("Reporting probability") + labs(title = "Occupancy Model with no CAR \n(OCC)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.STD.det.STD.plots[[2]] + xlab("Availability") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.STD.det.STD.plots[[3]] + xlab(expression(rho[occurrence])) + ylab("") +  theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + plot_layout(ncol = 3)  
+
+
+all.occ.reg.plots <-  binom.plots[[1]] + xlab("") + labs(subtitle = "Naive Logistic Regression (NLR)", title = "Reporting") + theme(panel.background = element_rect(fill = "lightgray"), 
+                                                                                                                              plot.background = element_rect(fill= "lightgray"),
+                                                                                                                              plot.title = element_text(size=14,face = "bold",hjust = 0.5)) +
+  binom.plots[[2]] + xlab("") + ylab("") + labs(title = "Availability") + theme(panel.background = element_rect(fill = "lightcyan"), 
+                                                                                plot.background = element_rect(fill= "lightcyan"),
+                                                                                plot.title = element_text(hjust=0.5, face="bold", size=14)) +
+  binom.plots[[3]] + xlab("") + ylab("") + labs(title = "Spatial \nAutocorrelation") + theme(panel.background = element_rect(fill = "cornsilk"), 
+                                                                                             plot.background = element_rect(fill= "cornsilk"),
+                                                                                             plot.title = element_text(hjust = 0.5, face = "bold", size =14)) +   
+  psi.CAR.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy Model with CAR on both components (OCC-CAR1)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.CAR.det.CAR.plots[[2]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.CAR.det.CAR.plots[[3]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) +
+  psi.CAR.det.STD.plots[[1]] + xlab("") + labs(subtitle = "Occupancy Model with CAR on occurrence only (OCC-CAR2)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.CAR.det.STD.plots[[2]] + xlab("") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.CAR.det.STD.plots[[3]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + 
+  psi.STD.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy Model with CAR on reporting only (OCC-CAR3)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.STD.det.CAR.plots[[2]] + xlab("") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.STD.det.CAR.plots[[3]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) +
+  psi.STD.det.STD.plots[[1]] + xlab("Reporting probability") + labs(subtitle = "Occupancy Model with no CAR (OCC)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.STD.det.STD.plots[[2]] + xlab("Availability") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.STD.det.STD.plots[[3]] + xlab(expression(rho[occurrence])) + ylab("") +  theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + plot_layout(ncol = 3)  
+
+ggsave(here::here("Outputs", "occregressionplots.png"), all.occ.reg.plots, height = 9, width = 7.5, units = "in")
+
+
+# occupancy intercept plots -----------------------------------------------
+binom.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple.int, mod.name = "binom.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple.int, mod.name = "psiCARdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple.int, mod.name = "psiCARdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple.int, mod.name = "psiSTDdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = psi.bias.smple.int, mod.name = "psiSTDdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+all.occ.int.plots <-  binom.plots[[1]] + xlab("") + labs(subtitle = "Naive Logistic Regression (NLR)", title = "Reporting") + theme(panel.background = element_rect(fill = "lightgray"), 
+                                                                                                                                    plot.background = element_rect(fill= "lightgray"),
+                                                                                                                                    plot.title = element_text(size=14,face = "bold",hjust = 0.5)) +
+  binom.plots[[2]] + xlab("") + ylab("") + labs(title = "Availability") + theme(panel.background = element_rect(fill = "lightcyan"), 
+                                                                                plot.background = element_rect(fill= "lightcyan"),
+                                                                                plot.title = element_text(hjust=0.5, face="bold", size=14)) +
+  binom.plots[[3]] + xlab("") + ylab("") + labs(title = "Spatial \nAutocorrelation") + theme(panel.background = element_rect(fill = "cornsilk"), 
+                                                                                             plot.background = element_rect(fill= "cornsilk"),
+                                                                                             plot.title = element_text(hjust = 0.5, face = "bold", size =14)) +   
+  psi.CAR.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy Model with CAR on both components (OCC-CAR1)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.CAR.det.CAR.plots[[2]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.CAR.det.CAR.plots[[3]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) +
+  psi.CAR.det.STD.plots[[1]] + xlab("") + labs(subtitle = "Occupancy Model with CAR on occurrence only (OCC-CAR2)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.CAR.det.STD.plots[[2]] + xlab("") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.CAR.det.STD.plots[[3]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + 
+  psi.STD.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy Model with CAR on reporting only (OCC-CAR3)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.STD.det.CAR.plots[[2]] + xlab("") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.STD.det.CAR.plots[[3]] + xlab("") + ylab("") + theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) +
+  psi.STD.det.STD.plots[[1]] + xlab("Reporting probability") + labs(subtitle = "Occupancy Model with no CAR (OCC)") + theme(panel.background = element_rect(fill = "lightgray"), plot.background = element_rect(fill= "lightgray")) +
+  psi.STD.det.STD.plots[[2]] + xlab("Availability") + ylab("")  + theme(panel.background = element_rect(fill = "lightcyan"), plot.background = element_rect(fill= "lightcyan")) + 
+  psi.STD.det.STD.plots[[3]] + xlab(expression(rho[occurrence])) + ylab("") +  theme(panel.background = element_rect(fill = "cornsilk"), plot.background = element_rect(fill= "cornsilk")) + plot_layout(ncol = 3)  
+
+ggsave(here::here("Outputs", "occintplots.png"), all.occ.int.plots, height = 9, width = 7.5, units = "in")
+
+# GeometryPlot ------------------------------------------------------------
+
+cty.MT <- tigris::counties(state="MT")
+cty.MT <- as(cty.MT, "sf")
+cty.zi <- cty.MT[cty.MT$NAME == "Gallatin" | cty.MT$NAME =="Park" | cty.MT$NAME == "Meagher" | cty.MT$NAME == "Sweetgrass" | cty.MT$NAME == "Wheatland",]
+tct.zi <- tigris::tracts(state="MT", county=unique(cty.zi$COUNTYFP)) %>% as(., "sf")
+bg.zi <- tigris::block_groups(state="MT",county=unique(cty.zi$COUNTYFP)) %>% as(., "sf")
+
+par(mfrow=c(1,1), bg="white", family='Times New Roman', col.main="black", cex=1.25)
+plot(st_geometry(cty.zi), col=viridis(n=nrow(cty.zi)))
+plot(st_geometry(cty.zi), col=viridis(n=nrow(cty.zi), alpha=0.6))
+plot(st_geometry(tct.zi), col=NULL, border="black", lwd=2, add=TRUE)
+plot(st_geometry(cty.zi), col=viridis(n=nrow(cty.zi), alpha=0.6))
+plot(st_geometry(tct.zi), col=NULL, border="red", lwd=1.5, add=TRUE)
+
+plot(st_geometry(bg.zi), col=NULL, border="red", lwd=1.5,add=TRUE)
+
+
+
+
+plt.grps <- c("occ", "p", "avail", "truth")
+
+binom.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.psi.bias, mod.name = "binom.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.psi.bias, mod.name = "psiCARdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.psi.bias, mod.name = "psiCARdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.psi.bias, mod.name = "psiSTDdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.psi.bias, mod.name = "psiSTDdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+all.occ.int.plots <- binom.plots[[1]] + xlab("") + labs(subtitle = "Logistic (CAR on occurrence)") +
+  binom.plots[[2]] + xlab("") + ylab("") + 
+  binom.plots[[3]] + xlab("") + ylab("") + 
+  binom.plots[[4]] + xlab("") + ylab("") +
   
+  psi.CAR.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on both components)") +
+  psi.CAR.det.CAR.plots[[2]] + xlab("") + ylab("") + 
+  psi.CAR.det.CAR.plots[[3]] + xlab("") + ylab("") + 
+  psi.CAR.det.CAR.plots[[4]] + xlab("") + ylab("") +
+  psi.CAR.det.STD.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on occupancy only)") +
+  psi.CAR.det.STD.plots[[2]] + xlab("") + ylab("") + 
+  psi.CAR.det.STD.plots[[3]] + xlab("") + ylab("") + 
+  psi.CAR.det.STD.plots[[4]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on detection only)") +
+  psi.STD.det.CAR.plots[[2]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[3]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[4]] + xlab("") + ylab("") +
+  psi.STD.det.STD.plots[[1]] + xlab("Occupancy probability") + labs(subtitle = "Occupancy (no CAR)") +
+  psi.STD.det.STD.plots[[2]] + xlab("Detection probability") + ylab("") + 
+  psi.STD.det.STD.plots[[3]] + xlab("Availability") + ylab("") + 
+  psi.STD.det.STD.plots[[4]] + xlab("True value") + ylab("") + plot_layout(nrow = 5)
+
+ggsave(here::here("Outputs", "occinterceptplots.png"), all.occ.int.plots, height = 8.25, width = 10.75, units = "in")
+
+
+# Regression coeffs for detection -----------------------------------------
+psi.CAR.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = p.reg.bias, mod.name = "psiCARdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = p.reg.bias, mod.name = "psiCARdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = p.reg.bias, mod.name = "psiSTDdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = p.reg.bias, mod.name = "psiSTDdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+all.p.reg.plots <- psi.CAR.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on both components)") +
+  psi.CAR.det.CAR.plots[[2]] + xlab("") + ylab("") + 
+  psi.CAR.det.CAR.plots[[3]] + xlab("") + ylab("") + 
+  psi.CAR.det.CAR.plots[[4]] + xlab("") + ylab("") +
+  psi.CAR.det.STD.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on occupancy only)") +
+  psi.CAR.det.STD.plots[[2]] + xlab("") + ylab("") + 
+  psi.CAR.det.STD.plots[[3]] + xlab("") + ylab("") + 
+  psi.CAR.det.STD.plots[[4]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on detection only)") +
+  psi.STD.det.CAR.plots[[2]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[3]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[4]] + xlab("") + ylab("") +
+  psi.STD.det.STD.plots[[1]] + xlab("Occupancy probability") + labs(subtitle = "Occupancy (no CAR)") +
+  psi.STD.det.STD.plots[[2]] + xlab("Detection probability") + ylab("") + 
+  psi.STD.det.STD.plots[[3]] + xlab("Availability") + ylab("") + 
+  psi.STD.det.STD.plots[[4]] + xlab("True value") + ylab("") + plot_layout(nrow = 4)
+
+ggsave(here::here("Outputs", "detregplots.png"), all.p.reg.plots, height = 8.25, width = 10.75, units = "in")
+
+
+# Det intercept plots -----------------------------------------------------
+psi.CAR.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.p.bias, mod.name = "psiCARdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.CAR.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.p.bias, mod.name = "psiCARdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.CAR.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.p.bias, mod.name = "psiSTDdetCAR.stan", plot.group = as.character(plt.grps[x])))  
+
+psi.STD.det.STD.plots <- map(seq_along(plt.grps), function (x)
+  gen_summary_plots(base.data.frame = mean.p.bias, mod.name = "psiSTDdetSTD.stan", plot.group = as.character(plt.grps[x])))  
+
+all.p.int.plots <- psi.CAR.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on both components)") +
+  psi.CAR.det.CAR.plots[[2]] + xlab("") + ylab("") + 
+  psi.CAR.det.CAR.plots[[3]] + xlab("") + ylab("") + 
+  psi.CAR.det.CAR.plots[[4]] + xlab("") + ylab("") +
+  psi.CAR.det.STD.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on occupancy only)") +
+  psi.CAR.det.STD.plots[[2]] + xlab("") + ylab("") + 
+  psi.CAR.det.STD.plots[[3]] + xlab("") + ylab("") + 
+  psi.CAR.det.STD.plots[[4]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[1]] + xlab("") + labs(subtitle = "Occupancy (CAR on detection only)") +
+  psi.STD.det.CAR.plots[[2]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[3]] + xlab("") + ylab("") + 
+  psi.STD.det.CAR.plots[[4]] + xlab("") + ylab("") +
+  psi.STD.det.STD.plots[[1]] + xlab("Occupancy probability") + labs(subtitle = "Occupancy (no CAR)") +
+  psi.STD.det.STD.plots[[2]] + xlab("Detection probability") + ylab("") + 
+  psi.STD.det.STD.plots[[3]] + xlab("Availability") + ylab("") + 
+  psi.STD.det.STD.plots[[4]] + xlab("True value") + ylab("") + plot_layout(nrow = 4)
+
+ggsave(here::here("Outputs", "detintplots.png"), all.p.int.plots, height = 8.25, width = 10.75, units = "in")
+
+
+
+
+
+# Code Graveyard ----------------------------------------------------------
+##get the median of the posterior of each individual run
+post.med.fit <- data.subset %>% 
+  group_by(iterID, truth,p, avail, tau, occ) %>% 
+  summarise(medbias = median(relBias))
+
+##get the median for all models at a given rounded value for plotting
+post.med.mod <- data.subset %>%
+  group_by(rounded) %>% 
+  summarise(medbias = median(relBias))
+
+##get the median for a rounded value within a run
+post.med.run <- data.subset %>%
+  group_by(runID, rounded) %>% 
+  summarise(medbias = median(relBias))
+
+ggplot(data = post.med.fit, mapping = aes(x=!!rlang::ensym(plot.group), y = medbias)) + 
+  geom_point(color = "gray80", alpha=0.2) +
+  geom_line(data = post.med.run, mapping = aes(x = rounded, y = medbias, group=runID), color = "gray60") +
+  geom_line(data = post.med.mod, mapping = aes(x = rounded, y = medbias), color = "blue") +
+  geom_point(data = subset(post.med.fit, p <= quantile(p, 0.1) & avail <= quantile(p, 0.1)), 
+             mapping = aes(x=!!rlang::ensym(plot.group), y = medbias), color = "red") +
+  scale_y_continuous(trans = 'custom_log_y', breaks=custom_y_breaks(post.med.fit$medbias)) +
+  theme_minimal() +
+  ylab("Relative bias")
+
 }
 
 
@@ -351,8 +613,6 @@ betaAll.p.plot <- p4 + geom_point(data = p.reg.bias.iter, mapping = aes(x = p, y
   xlab("Mean detection probability") +
   ylab("Relative Bias") +
   facet_wrap(. ~ mod, scales = "free_y")
-
-# Code Graveyard ----------------------------------------------------------
 
 
 d <- mean.psi.bias %>% 
