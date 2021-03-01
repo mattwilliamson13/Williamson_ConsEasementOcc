@@ -17,7 +17,7 @@ gen.data.folder <- "D:/Data/NCED_Data/GeneratedData/"
 rasterOptions(tmpdir = "D:/RastTemp/")
 
 prj <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"
-
+#these objects need to be saved as .rds files for use in IDMT_datagen.R
 # Get geography -----------------------------------------------------------
 #load spatial data
 st <- c("ID", "MT")
