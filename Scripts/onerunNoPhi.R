@@ -5,9 +5,9 @@ library(tidyverse)
 # Get environment params from slurm ---------------------------------------
 args <- commandArgs(trailingOnly = TRUE)
 print(args)
-run <- as.numeric(args[1])
+run <- as.numeric(args[1]) #number of simulation
 print(paste0("run = ", run))
-stan.idx <- as.numeric(args[2])
+stan.idx <- as.numeric(args[2]) #model ID
 print(paste0("stan.idx = ", stan.idx))
 
 inputn <- as.numeric(Sys.getenv("SLURM_ARRAY_TASK_ID"))
@@ -20,23 +20,21 @@ h <- 300
 latin.hyp <- maximinLHS(h, 6)
 # Parameters that affect estimation ---------------------------------------
 
-occ.rho.min <- 0.5
-occ.rho.max <- 0.999
-p.rho.min <- 0.5 #per M. Hooten anything below 0.5 is not likely to matter
-p.rho.max <- 0.999
-sub.occ.min <- 0.2 #this is the propbability that at subunit is available
-sub.occ.max <- 0.8
-occ.min <- 0.2
-occ.max <- 0.8 
-p.min <- 0.3
-p.max <- 0.98
-tau.min <- 0.1
-tau.max <- 1
+occ.rho.min <- 0.5 #min spatial correlation in occupancy between units
+occ.rho.max <- 0.999 #max spatial correlation in occupancy between units
+p.rho.min <- 0.5 #min spatial correlation in reporting between units
+p.rho.max <- 0.999 #max spatial correlation in reporting between units
+sub.occ.min <- 0.2 #min probability that at subunit is available
+sub.occ.max <- 0.8 #max probability that at subunit is available
+occ.min <- 0.2 #min average occupancy prob
+occ.max <- 0.8 #max average occupancy prob
+p.min <- 0.3 #min average reporting prob
+p.max <- 0.98 #max average reporting prob
+tau.min <- 0.1 #min precision in CAR
+tau.max <- 1 #max precision in CAR
 
 
-#sdev <- seq(1, 3, length.out = 1000)
-#tau <- 1/(sdev^2)
-#plot(tau ~ sdev)
+
 # Map params to hypercube samples -----------------------------------------
 params.set <- cbind(occRHO = latin.hyp[,1] * (occ.rho.max - occ.rho.min) + occ.rho.min,
                     pRHO = latin.hyp[,2] * (p.rho.max - p.rho.min) + p.rho.min,
@@ -46,10 +44,7 @@ params.set <- cbind(occRHO = latin.hyp[,1] * (occ.rho.max - occ.rho.min) + occ.r
                     tau = latin.hyp[,6] * (tau.max - tau.min) + tau.min)
 
 
-#mean.psi <- seq(from=0.2, to=0.8, by=0.2)
-
 # Set design parameters ---------------------------------------------------
-#m.cty <- 2 #Numver of cty-level params on occurrence
 m.tct <- 4 #number of tract-level params on occurence
 m.bg <- 3 #Number of block-group level params on reporting
 
@@ -72,10 +67,6 @@ obs.cov.matx.tct <- solve(obs.prec.matx.tct[[2]]) #necessary for rmvn
 obs.prec.matx.bg <- gen_sp_precMatx(geog=geog.bg, rho=0.3, tau=1)
 obs.cov.matx.bg <- solve(obs.prec.matx.bg[[2]]) #necessary for rmvn
 
-#X.cty <- matrix(rnorm((m.cty)*length(unique(geog.tct$COUNTYFP)), mean=0, sd=1.25), ncol=m.cty)
-#X.cty <- apply(X.cty, 2, scale)
-#X.tct <- scale(t(mvnfast::rmvn(m.tct, rep(0,NROW(obs.cov.matx.tct)), obs.cov.matx.tct, ncores=10)))
-
 X.tct <- matrix(c(rep(1, nrow(geog.tct)), mvnfast::rmvn(m.tct-1, rep(0,NROW(obs.cov.matx.tct)),
                                                        obs.cov.matx.tct, ncores=10)), ncol=m.tct)
 X.tct[,2:m.tct] <- apply(X.tct[,2:m.tct], 2, scale)
@@ -85,19 +76,13 @@ X.bg <- matrix(c(rep(1, nrow(geog.bg)), mvnfast::rmvn(m.bg-1, rep(0,NROW(obs.cov
 X.bg[,2:m.bg] <- apply(X.bg[,2:m.bg], 2, scale)
 
 
-#X.bg <- scale(t(mvnfast::rmvn(m.bg, rep(0,NROW(obs.cov.matx.bg)), obs.cov.matx.bg, ncores=10)))
-#tct.in.cty <- rethinking::coerce_index(geog.tct[order(geog.tct$GEOID),]$COUNTYFP) #because the covariance matrices reorder the geog file, have to reorder here to get proper indices
-
 # Generate occurrence data ------------------------------------------------
-#inputn <- 1
-
-#b.cty <- runif(m.cty, -1,1)
 b.tct <-c(unname(boot::logit(params.set[inputn, 4])), runif(m.tct-1, -3,3))
 
 err.prec.matx.tct <- gen_sp_precMatx(geog = geog.tct, rho=params.set[inputn,1], tau=params.set[inputn,6])
 err.cov.matx.tct <- solve(err.prec.matx.tct[[2]])
 phi.occ <- mvnfast::rmvn(1, rep(0, nrow(err.cov.matx.tct)), err.cov.matx.tct, ncores = 10)
-#mu.cty <- qlogis(mean.psi[inputn]) + X.cty %*% b.cty
+
 logit.psi <- X.tct %*% b.tct + t(phi.occ)
 z <- rbinom(nrow(geog.tct), size = 1, prob = boot::inv.logit(logit.psi))
 
@@ -111,9 +96,6 @@ survey_summary <- geog.bg %>%
 
 n_survey <- as.vector(survey_summary$count)
 total_surveys <- nrow(geog.bg)
-#X.bg <- matrix(c(rep(1, total_surveys), mvnfast::rmvn(m.bg-1, rep(0,NROW(obs.cov.matx.bg)),
-#                                                              obs.cov.matx.bg, ncores=10)), ncol=m.bg)
-#X.bg[,2:3] <- apply(X.bg[,2:3], 2, scale)
 
 err.prec.matx.bg <- gen_sp_precMatx(geog = geog.bg, rho=params.set[inputn,2], tau=params.set[inputn,6])
 err.cov.matx.bg <- solve(err.prec.matx.bg[[2]])
@@ -225,19 +207,10 @@ p.bias <- reg.draws %>%
   filter(., !grepl("*psi.*", term)) %>% 
   mutate(truth = b.bg[as.numeric(str_extract(term, regexp))],
          relBias = (estimate - truth)/abs(truth))
+#Not interested in estimation of phi per se; set to NA
 phi.draws <- NA
-#phi.draws <- gather_draws(fit.rec, `phi_.*`, regex=TRUE) %>%  
-#  to_broom_names()
 phi.occ.bias <- NA
-#phi.occ.bias <- phi.draws %>% 
-#  filter(., grepl("*occ.*", term)) %>% 
-#  mutate(truth = phi.occ[as.numeric(str_extract(term, regexp))],
-#         relBias = (estimate - truth)/abs(truth))
 phi.det.bias <- NA
-#phi.det.bias <- phi.draws %>% 
-#  filter(., grepl("*det.*", term)) %>% 
-#  mutate(truth = phi.p[as.numeric(str_extract(term, regexp))],
-#         relBias = (estimate - truth)/abs(truth))
 
 # Save output -------------------------------------------------------------
 
