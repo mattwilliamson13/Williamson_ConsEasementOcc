@@ -11,7 +11,7 @@ library(stringi)
 
 options(mc.cores = parallel::detectCores())
 options(tigris_use_cache = TRUE)
-census_api_key('baaaffb5ed3accd8dfa53c6f827659d43fcdfa21') #get this from the census api webpage see help(census_api_key) for details
+census_api_key('YOUR_API_KEY_HERE') #get this from the census api webpage see help(census_api_key) for details
 orig.data.folder <- "D:/Data/NCED_Data/OriginalData/"
 gen.data.folder <- "D:/Data/NCED_Data/GeneratedData/"
 
@@ -104,7 +104,7 @@ colnames(med.age.tct)[3] <- "medagetct"
 
 # Get maximum rarity weighted richness ------------------------------------
 
-rwr.tract <- readRDS("D:/Data/IDMTDataArchive/rwr_tract.rds")
+rwr.tract <- readRDS("D:/Data/IDMTDataArchive/rwr_tract.rds") #Users will have to contact NatureServe for this data
 max.rwr <- map(seq_along(rwr.tract), function(x)
   map(seq_along(rwr.tract[[x]]), function(y) max(rwr.tract[[x]][[y]], na.rm = TRUE))
 )  
@@ -115,7 +115,7 @@ rwr.mx.df <- data.frame(GEOID = tct.names,
 
 # Get variance of wildness ------------------------------------------------
 
-wild.tract <- readRDS("D:/Data/IDMTDataArchive/wildness_tract.rds")
+wild.tract <- readRDS("D:/Data/IDMTDataArchive/wildness_tract.rds") #wildness data from Aplet et al. 2020
 var.wild <- map(seq_along(wild.tract), function(x)
   map(seq_along(wild.tract[[x]]), function(y) sd(wild.tract[[x]][[y]], na.rm = TRUE)^2)
 )  
