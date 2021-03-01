@@ -19,7 +19,7 @@ echo $SLURM_ARRAY_TASK_ID
 
 cd $SCRATCH
 srun ls
-Rscript --vanilla ./Scripts/onerunNoPhi.R ${1} ${2}
+Rscript --vanilla ./Scripts/simrun_noCAR.R ${1} ${2}
 
 srun cp -r $SCRATCH/*.rds $SLURM_SUBMIT_DIR/Outs/
 
